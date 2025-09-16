@@ -1,0 +1,105 @@
+-- Créer la base de données (si elle n'existe pas)
+CREATE DATABASE IF NOT EXISTS `espigon_test`;
+USE `espigon_test`;
+
+-- 1. Table source principale (PGOP)
+CREATE TABLE IF NOT EXISTS `LQ_FACTURA_B` (
+  `IDINTERNO` INT PRIMARY KEY,
+  `NUMFACTURA` VARCHAR(50),
+  `ESTADO` CHAR(1),
+  `FECFACTURA` VARCHAR(20), -- On utilise VARCHAR pour simuler le format 'DD/MM/YY'
+  `BFUSIC` VARCHAR(100) NULL,
+  `IMPNET` DECIMAL(10,2),
+  `IMPIVA` DECIMAL(10,2),
+  `IMPTOT` DECIMAL(10,2),
+  `NOMUSU` VARCHAR(255)
+);
+
+-- 2. Table tampon PGOP
+CREATE TABLE IF NOT EXISTS `FCABFAC` (
+  `IDFACTURA` INT PRIMARY KEY,
+  `NUMFACTURA` VARCHAR(50),
+  `CABDSP` CHAR(1),
+  `FECFACTURA` VARCHAR(20),
+  `TIPOSERIE` VARCHAR(10),
+  `IMPNET` DECIMAL(10,2)
+);
+
+-- 3. Table tampon JDE
+CREATE TABLE IF NOT EXISTS `F58PGOP1` (
+  `PGCCID` INT,
+  `PGASID` INT,
+  `PGLOT` VARCHAR(50),
+  `PGBP01` VARCHAR(100),
+  `PG74UAMT1` INT, -- On stocke les centimes parfois, d'où la division par 100
+  `PGEV01` INT NULL -- Code erreur
+);
+
+-- 4. Table comptabilité JDE
+CREATE TABLE IF NOT EXISTS `F03B11` (
+  `RPDOC` INT PRIMARY KEY,
+  `RPVR01` VARCHAR(255),
+  `RPATXA` DECIMAL(10,2), -- Montant HT
+  `RPSTAM` DECIMAL(10,2), -- Montant TVA
+  `RPAG` DECIMAL(10,2),   -- Montant TTC
+  `RPPST` CHAR(1)
+);
+
+-- 5. Table des clients (pour le contrôle 4)
+CREATE TABLE IF NOT EXISTS `F0101` (
+  `ABAN8` INT, -- ID Client
+  `ABALPH` VARCHAR(255), -- Nom du client
+  `ABTAX` VARCHAR(50) -- Numéro IFU/Tax ID
+);
+
+-- ------------------------------------------------------------
+-- INSERTION DE DONNÉES DE TEST (Juillet 2024)
+-- ------------------------------------------------------------
+
+-- Données pour LQ_FACTURA_B
+INSERT INTO `LQ_FACTURA_B` 
+(`IDINTERNO`, `NUMFACTURA`, `ESTADO`, `FECFACTURA`, `BFUSIC`, `IMPNET`, `IMPIVA`, `IMPTOT`, `NOMUSU`) VALUES
+-- Factures qui devraient être transmises normalement
+(1001, 'FACT-1001', 'A', '01/07/24', NULL, 10000.00, 1800.00, 11800.00, 'Client Alpha'),
+(1002, 'FACT-1002', 'A', '05/07/24', NULL, 15000.00, 2700.00, 17700.00, 'Client Beta'),
+-- Facture MANQUANTE dans FCABFAC (Contrôle 1)
+(1003, 'FACT-1003', 'L', '10/07/24', NULL, 20000.00, 3600.00, 23600.00, 'Client Gamma'),
+-- Facture avec erreur CODE 4 (Contrôle 4)
+(1004, 'FACT-1004', 'A', '15/07/24', NULL, 5000.00, 900.00, 5900.00, 'PUMA ENERGY'),
+-- Facture avec écart de montant (Contrôle 5)
+(1005, 'FACT-1005', 'A', '20/07/24', NULL, 8000.00, 1440.00, 9440.00, 'Client Delta');
+
+-- Données pour FCABFAC (Certaines factures de LQ_FACTURA_B n'y sont pas)
+INSERT INTO `FCABFAC` 
+(`IDFACTURA`, `NUMFACTURA`, `CABDSP`, `FECFACTURA`, `TIPOSERIE`, `IMPNET`) VALUES
+(1001, 'FACT-1001', 'Y', '01/07/24', 'S1', 10000.00),
+(1002, 'FACT-1002', 'Y', '05/07/24', 'S1', 15000.00),
+-- La facture 1003 est absente -> DOIT apparaitre dans le Contrôle 1
+(1004, 'FACT-1004', 'Y', '15/07/24', 'S1', 5000.00),
+(1005, 'FACT-1005', 'Y', '20/07/24', 'S1', 8000.00);
+-- La facture 1005 a le bon montant ici, mais on le changera dans F03B11 pour le contrôle 5
+
+-- Données pour F58PGOP1 (Certaines factures de FCABFAC n'y sont pas)
+INSERT INTO `F58PGOP1` 
+(`PGCCID`, `PGASID`, `PGLOT`, `PGBP01`, `PG74UAMT1`, `PGEV01`) VALUES
+(1001, 1001, '07/01/2024', 'Some Data', 1180000, NULL), -- Montant en centimes * 100
+(1002, 1002, '07/05/2024', 'Some Data', 1770000, NULL),
+-- La facture 1004 a un code erreur 4 -> Contrôle 4
+(1004, 1004, '07/15/2024', 'Some Data', 590000, 4);
+-- Les factures 1003 (manquante) et 1005 (non transmise) n'apparaissent PAS ici
+-- -> 1003 et 1005 doivent apparaitre dans le Contrôle 2
+
+-- Données pour F03B11 (Certaines factures de F58PGOP1 n'y sont pas)
+INSERT INTO `F03B11` 
+(`RPDOC`, `RPVR01`, `RPATXA`, `RPSTAM`, `RPAG`, `RPPST`) VALUES
+(1001, 'REF|PAC|2024|FACT-1001', 10000.00, 1800.00, 11800.00, 'A'),
+(1002, 'REF|PAC|2024|FACT-1002', 15000.00, 2700.00, 17700.00, 'A');
+-- Les factures 1004 (erreur) et 1005 (manquante) n'apparaissent PAS ici
+-- -> 1004 doit apparaitre dans le Contrôle 3 et le Contrôle 4
+-- -> 1005 doit apparaitre dans le Contrôle 3
+
+-- Données pour F0101 (pour résoudre l'erreur code 4)
+INSERT INTO `F0101` 
+(`ABAN8`, `ABALPH`, `ABTAX`) VALUES
+(5001, 'PUMA ENERGY TOGO', '123456789B01'),
+(5002, 'TOTAL ENERGIES', '987654321C02');
