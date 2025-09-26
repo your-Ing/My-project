@@ -1,0 +1,15 @@
+pgop_jde_control/
+│
+├── main.py                 # Script principal
+├── utils.py                # Fonctions utilitaires (DB, email, Excel)
+├── config.ini              # Configuration (base + emails)
+│
+├── controles/              # Modules de contrôles
+│   ├── __init__.py
+│   ├── controle1.py
+│   ├── controle2.py
+│   ├── controle3.py
+│   ├── controle4.py
+│   └── controle5.py
+│
+└── output/                 # Rapports Excel et logs générés
